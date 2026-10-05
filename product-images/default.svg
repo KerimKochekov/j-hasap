@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 220">
+  <rect width="240" height="220" rx="18" fill="#edf3ee"/>
+  <ellipse cx="120" cy="189" rx="61" ry="10" fill="#000" opacity=".07"/>
+  <path d="M97 36l-22 14 13 31 15-8 2 33-37 74q52 16 104 0l-37-74 2-33 15 8 13-31-22-14q-5 18-23 18t-23-18z" fill="#b9cebe" stroke="#91ab97" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M97 36q5 18 23 18t23-18" fill="none" stroke="#e5eee7" stroke-width="5"/>
+  <path d="M105 106h30" stroke="#789681" stroke-width="7"/>
+  <path d="M106 121l-20 56m34-56v59m14-59 20 56" stroke="#91ab97" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <text x="120" y="208" text-anchor="middle" fill="#52635d" font-family="Arial,sans-serif" font-weight="700" font-size="10" letter-spacing="2">DRESS</text>
+</svg>
