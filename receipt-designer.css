@@ -66,3 +66,7 @@ dialog{max-height:calc(100dvh - 32px);overflow-y:auto}
 #bluetooth-controls{border-bottom:1px solid var(--editor-line);padding-bottom:16px;margin-bottom:16px;font-size:10px}
 #bluetooth-controls .check-printer{margin-top:8px}
 #bluetooth-controls .check-printer:disabled{opacity:.4;cursor:default}
+
+/* Thermal spreading closes the counters in bold digits on the BT-802.
+   Only the offscreen Bluetooth raster uses regular text; saved layouts retain bold. */
+.bluetooth-render .receipt,.bluetooth-render .receipt *,.bluetooth-render .barcode-label,.bluetooth-render .barcode-label *{font-weight:400!important}

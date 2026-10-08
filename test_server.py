@@ -32,6 +32,87 @@ class SalesTests(unittest.TestCase):
             self.assertEqual(saved['items'][0]['name'],'Tea')
             self.assertEqual(saved['items'][0]['price'],1250)
 
+    def test_discount_saved_and_price_snapshot_preserved(self):
+        sale = self.sale(items=[{'id':self.pid,'quantity':3,'price':1250}],discount_percent=20,tendered='30')
+        self.assertEqual(sale['total'],3000)
+        self.assertEqual(sale['items'][0]['price'],1000)
+        self.assertEqual(sale['items'][0]['original_price'],1250)
+        self.assertEqual(sale['items'][0]['discount'],250)
+        with server.connect() as db:
+            db.execute('UPDATE products SET price=1800 WHERE id=?',(self.pid,))
+        server.initialize()
+        with server.connect() as db:
+            saved = server.sale_detail(db,sale['id'])
+            detail = server.product_detail(db,self.pid)
+        self.assertEqual(saved['items'][0]['price'],1000)
+        self.assertEqual(saved['items'][0]['original_price'],1250)
+        self.assertEqual(detail['sales'][0]['price'],1000)
+        self.assertEqual(detail['sales_revenue'],3000)
+        self.assertEqual(self.stock(),17)
+
+    def test_percentage_applies_to_all_products_with_cent_rounding(self):
+        with server.connect() as db:
+            other = db.execute('INSERT INTO products(name,barcode,price,stock) VALUES(?,?,?,?)',('Bread','987',199,10)).lastrowid
+        sale = self.sale(items=[{'id':self.pid,'quantity':2,'price':1250},{'id':other,'quantity':3,'price':199}],discount_percent='12.50',payment='Card')
+        self.assertEqual(sale['discount_percent'],1250)
+        self.assertEqual([i['price'] for i in sale['items']],[1094,174])
+        self.assertEqual(sale['total'],2710)
+        self.assertEqual(sale['tendered'],2710)
+
+    def test_discount_can_make_item_free(self):
+        sale = self.sale(items=[{'id':self.pid,'quantity':2,'price':1250}],discount_percent=100,tendered='0')
+        self.assertEqual(sale['total'],0)
+        self.assertEqual(self.stock(),18)
+
+    def test_invalid_discount_rolls_back(self):
+        for discount in [-1,101,True,1.555,'nan',None]:
+            with self.assertRaisesRegex(ValueError,'discount'):
+                self.sale(discount_percent=discount)
+        self.assertEqual(self.stock(),20)
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM sales').fetchone()[0],0)
+
+    def edit_stock(self, adjustment=None, **overrides):
+        body={'id':self.pid,'name':'Tea','barcode':'123456','price':'12.50','stock':20,'stock_adjustment':adjustment}
+        body.update(overrides)
+        with server.connect() as db: return server.save_product(db,body)
+
+    def test_quantity_adjustments_and_sales_in_history(self):
+        self.edit_stock({'direction':'add','quantity':5,'description':'New delivery'})
+        self.assertEqual(self.stock(),25)
+        self.edit_stock({'direction':'remove','quantity':3,'description':'Damaged'})
+        sale=self.sale()
+        with server.connect() as db: history=server.product_detail(db,self.pid)['stock_history']
+        self.assertEqual(sorted(h['delta'] for h in history),[-3,-2,5])
+        self.assertEqual(next(h for h in history if h['delta']==5)['description'],'New delivery')
+        self.assertEqual(next(h for h in history if h['delta']==-3)['remaining'],22)
+        self.assertEqual(next(h for h in history if h['source']=='sale')['sale_id'],sale['id'])
+        self.assertEqual(self.stock(),20)
+        server.initialize()
+        with server.connect() as db: self.assertEqual(len(server.product_detail(db,self.pid)['stock_history']),3)
+
+    def test_product_edit_does_not_restore_stale_stock(self):
+        self.sale()
+        self.edit_stock(price='13.00')
+        self.assertEqual(self.stock(),18)
+        self.edit_stock({'direction':'add','quantity':2})
+        self.assertEqual(self.stock(),20)
+
+    def test_invalid_adjustments_leave_stock_and_history_unchanged(self):
+        for adjustment in [ {'direction':'remove','quantity':21}, {'direction':'add','quantity':1000000},
+                            {'direction':'add','quantity':0}, {'direction':'add','quantity':True},
+                            {'direction':'other','quantity':1}, {'direction':'add','quantity':1,'description':'x'*501} ]:
+            with self.assertRaises(ValueError): self.edit_stock(adjustment)
+        self.assertEqual(self.stock(),20)
+        with server.connect() as db: self.assertEqual(db.execute('SELECT COUNT(*) FROM product_stock_history').fetchone()[0],0)
+
+    def test_failed_save_rolls_back_stock_log(self):
+        with server.connect() as db: db.execute("INSERT INTO products(name,barcode,price,stock) VALUES('Other','OTHER',100,1)")
+        import sqlite3
+        with self.assertRaises(sqlite3.IntegrityError): self.edit_stock({'direction':'add','quantity':2},barcode='OTHER')
+        self.assertEqual(self.stock(),20)
+        with server.connect() as db: self.assertEqual(db.execute('SELECT COUNT(*) FROM product_stock_history').fetchone()[0],0)
+
     def test_insufficient_cash_creates_no_sale(self):
         with self.assertRaises(ValueError): self.sale(tendered='1.00')
         with server.connect() as db:

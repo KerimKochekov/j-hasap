@@ -65,6 +65,20 @@ function monochromeRaster(canvas) {
   return {width,height,data:btoa(binary)};
 }
 
+function drawThermalAmount(ctx,text,box,fontSize) {
+  // Draw each glyph on integer dots with the same advance. Fractional bitmap
+  // scaling can otherwise give identical digits different thresholded shapes.
+  ctx.save();
+  ctx.fillStyle='#fff';ctx.fillRect(Math.floor(box.x),Math.floor(box.y),Math.ceil(box.width)+1,Math.ceil(box.height)+1);
+  ctx.fillStyle='#000';ctx.font=`400 ${Math.round(fontSize)}px "Courier New", monospace`;
+  ctx.textAlign='left';ctx.textBaseline='middle';
+  const advance=Math.ceil(ctx.measureText('0').width);
+  const x=Math.round(box.x+box.width)-advance*text.length;
+  const y=Math.round(box.y+box.height/2);
+  for(let i=0;i<text.length;i++)ctx.fillText(text[i],x+i*advance,y);
+  ctx.restore();
+}
+
 async function receiptRaster(html,paperWidth) {
   const width=paperWidth===58?384:576;
   const holder=document.createElement('div');
@@ -83,7 +97,12 @@ async function receiptRaster(html,paperWidth) {
     if(bounds.height*width/bounds.width>8000)throw new Error(t('The receipt is too long for Bluetooth printing. Use browser printing.'));
     const rendered=await html2canvas(holder,{backgroundColor:'#ffffff',scale:width/bounds.width,logging:false,useCORS:false});
     const canvas=document.createElement('canvas');canvas.width=width;canvas.height=rendered.height;
-    const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,width,canvas.height);ctx.drawImage(rendered,0,0,width,canvas.height);
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,width,canvas.height);ctx.drawImage(rendered,0,0);
+    const scale=width/bounds.width;
+    for(const element of holder.querySelectorAll('[data-print-amount]')){
+      const rect=element.getBoundingClientRect();
+      drawThermalAmount(ctx,element.textContent.trim(),{x:(rect.left-bounds.left)*scale,y:(rect.top-bounds.top)*scale,width:rect.width*scale,height:rect.height*scale},parseFloat(getComputedStyle(element).fontSize)*scale);
+    }
     return {canvas,raster:monochromeRaster(canvas)};
   }finally{holder.remove();}
 }

@@ -1,11 +1,46 @@
 // The editor preview and printed receipts use this same renderer.
-let receiptTemplate = null;
+let receiptTemplate = null, barcodeTemplate = null, designTemplate = null;
+let designerMode = 'designer', barcodeSampleId = null;
+const designerStates = new Map();
+function storeDesignerState() {
+  designerStates.set(designerMode,{draft:receiptDraft,selected:selectedBlock,dirty:receiptDirty,saving:receiptSaving,undo:receiptUndo,redo:receiptRedo});
+}
+function activateDesigner(mode) {
+  if(mode!==designerMode){
+    storeDesignerState();designerMode=mode;
+    const state=designerStates.get(mode);
+    receiptDraft=state?.draft||null;selectedBlock=state?.selected||null;receiptDirty=state?.dirty||false;receiptSaving=state?.saving||false;receiptUndo=state?.undo||[];receiptRedo=state?.redo||[];
+  }
+  designTemplate=designerMode==='barcode-designer'?barcodeTemplate:receiptTemplate;
+}
+const isBarcodeDesigner = () => designerMode==='barcode-designer';
+const designEndpoint = () => isBarcodeDesigner()?'barcode-template':'receipt-template';
+function requiredBlock(kind){return isBarcodeDesigner()?['product_name','product_barcode','product_price'].includes(kind):lockedBlocks.has(kind);}
+function barcodeSample(){return products.find(p=>p.id===barcodeSampleId)||products.find(p=>p.barcode.length<=18)||{name:t('Sample product'),barcode:'123456789',price:1250};}
+function renderBarcodeLabel(product,template,interactive=false){
+  const blocks=template.blocks.map(block=>{
+    let body='';
+    switch(block.type){
+      case 'product_name':body=`<div class="receipt-copy">${esc(product.name)}</div>`;break;
+      case 'product_barcode':body=`<div class="receipt-code">${product.barcode.length<=18?barcodeSVG(product.barcode):esc(t('Barcode is too long for this label.'))}<div>${esc(product.barcode)}</div></div>`;break;
+      case 'product_price':body=`<div class="receipt-copy" data-print-amount>${(product.price/100).toFixed(2)} TMT</div>`;break;
+      case 'title':case 'text':body=`<div class="receipt-copy">${esc(receiptText(block))}</div>`;break;
+      case 'divider':body='<div class="receipt-divider"></div>';break;
+      case 'spacer':body='<div class="receipt-space"></div>';break;
+      case 'logo':body=block.image?`<img class="receipt-logo" src="${esc(block.image)}" alt="${t('Store logo')}">`:(interactive?`<div class="receipt-logo-placeholder">${t('Upload your logo')}</div>`:'');break;
+    }
+    return `<div class="receipt-block ${interactive?'editable-block':''} ${interactive&&selectedBlock===block.id?'is-selected':''}" ${interactive?`data-block="${esc(block.id)}" tabindex="0" role="button" aria-label="${esc(t(blockNames[block.type]))}"`:''} style="text-align:${block.align};font-size:${{small:.85,normal:1,large:1.4}[block.size]}em;font-weight:${block.bold?'700':'400'}">${body}</div>`;
+  }).join('');
+  return `<div class="receipt receipt-v2 barcode-designed" style="--receipt-width:${template.paperWidth-4}mm;--receipt-size:${template.fontSize}px;--receipt-font:${template.font==='sans'?'Arial, sans-serif':'monospace'}">${blocks}<div class="receipt-feed" style="height:${template.feed*4}mm"></div></div>`;
+}
+function renderDesignerPreview(interactive=false){return isBarcodeDesigner()?renderBarcodeLabel(barcodeSample(),receiptDraft,interactive):renderReceipt(designerSample(),receiptDraft,interactive);}
+
 let receiptDraft = null;
 let selectedBlock = null;
 let receiptDirty = false;
 let receiptSaving = false;
 let receiptUndo = [], receiptRedo = [];
-const blockNames = {title:'Title',text:'Text',meta:'Date & receipt number',items:'Purchased items',total:'Sale total',payment:'Payment details',divider:'Divider',spacer:'Blank space',logo:'Store logo',barcode:'Receipt barcode',qr:'Instagram QR code'};
+const blockNames = {title:'Title',text:'Text',meta:'Date & receipt number',items:'Purchased items',total:'Sale total',payment:'Payment details',divider:'Divider',spacer:'Blank space',logo:'Store logo',barcode:'Receipt barcode',qr:'Instagram QR code',product_name:'Product name',product_barcode:'Product barcode',product_price:'Product price'};
 const lockedBlocks = new Set(['meta','items','total']);
 const cloneReceipt = value => JSON.parse(JSON.stringify(value));
 const receiptKey = value => JSON.stringify(value, (key,entry)=>entry&&typeof entry==='object'&&!Array.isArray(entry)?Object.fromEntries(Object.entries(entry).sort(([a],[b])=>a.localeCompare(b))):entry);
@@ -34,12 +69,12 @@ function renderReceipt(sale, template, interactive = false) {
       case 'meta':
         body = `<div class="receipt-copy">#${esc(number)}<br>${esc(dateText(sale.created_at,true))}</div>`; break;
       case 'items':
-        body = sale.items.map(item=>`<div class="receipt-item"><span>${esc(item.name)}<small>${item.quantity} × ${amount(item.price)}</small></span><strong>${amount(item.price*item.quantity)}</strong></div>`).join(''); break;
+        body = sale.items.map(item=>`<div class="receipt-item"><span>${esc(item.name)}<small>${item.quantity} × ${amount(item.price)}</small></span><strong data-print-amount>${amount(item.price*item.quantity)}</strong></div>`).join(''); break;
       case 'total':
-        body = `<div class="receipt-item receipt-total"><strong>${t('TOTAL (TMT)')}</strong><strong>${amount(sale.total)}</strong></div>`; break;
+        body = `<div class="receipt-item receipt-total"><strong>${t('TOTAL (TMT)')}</strong><strong data-print-amount>${amount(sale.total)}</strong></div>`; break;
       case 'payment':
         body = `<div class="receipt-item"><span>${t('Payment')}</span><span>${esc(t(sale.payment))}</span></div>`;
-        if(sale.payment==='Cash') body += `<div class="receipt-item"><span>${t('Cash received')}</span><span>${amount(sale.tendered)}</span></div><div class="receipt-item"><span>${t('Change')}</span><span>${amount(sale.tendered-sale.total)}</span></div>`;
+        if(sale.payment==='Cash') body += `<div class="receipt-item"><span>${t('Cash received')}</span><span data-print-amount>${amount(sale.tendered)}</span></div><div class="receipt-item"><span>${t('Change')}</span><span data-print-amount>${amount(sale.tendered-sale.total)}</span></div>`;
         break;
       case 'divider': body = '<div class="receipt-divider"></div>'; break;
       case 'spacer': body = '<div class="receipt-space"></div>'; break;
@@ -62,7 +97,7 @@ function designerSample() {
 }
 function startReceiptDraft() {
   if(receiptDraft) return;
-  receiptDraft=cloneReceipt(receiptTemplate);
+  receiptDraft=cloneReceipt(designTemplate);
   selectedBlock=receiptDraft.blocks[0].id;
 }
 function rememberReceipt() {
@@ -71,32 +106,34 @@ function rememberReceipt() {
   receiptRedo=[];
 }
 function markReceiptChanged() {
-  receiptDirty=receiptKey(receiptDraft)!==receiptKey(receiptTemplate);
+  receiptDirty=receiptKey(receiptDraft)!==receiptKey(designTemplate);
   updateReceiptPreview();
 }
-function blockOrderValid(blocks) { return blocks.findIndex(b=>b.type==='items')<blocks.findIndex(b=>b.type==='total'); }
+function blockOrderValid(blocks) { if(isBarcodeDesigner())return true;return blocks.findIndex(b=>b.type==='items')<blocks.findIndex(b=>b.type==='total'); }
 function renderReceiptDesigner() {
   startReceiptDraft();
   $('#view').innerHTML = `<div class="designer-toolbar"><div><span class="designer-badge">${t('ADMIN')}</span><span id="design-status"></span></div><div class="designer-toolbar-actions"><button class="secondary" id="design-undo" aria-label="${t('Undo')}">↶ ${t('Undo')}</button><button class="secondary" id="design-redo" aria-label="${t('Redo')}">↷ ${t('Redo')}</button><button class="secondary" id="design-discard">${t('Discard changes')}</button><button class="secondary" id="design-test">${t('Print sample')}</button><button class="primary" id="design-save">${t('Save design')}</button></div></div>
-  <div class="receipt-designer"><section class="designer-panel block-palette"><div class="designer-section-title">⊞ <h2>${t('Add block')}</h2></div><p class="designer-hint">${t('Build your receipt one block at a time.')}</p><div id="block-palette"></div><div class="required-note"><span>▣</span><p>${t('Receipt number, items and total are required. Their values come from each sale.')}</p></div></section>
-  <section class="designer-canvas"><div class="canvas-heading"><span>${t('LIVE PREVIEW')}</span><span id="canvas-width"></span></div><div class="paper-stage"><div id="designer-paper"></div></div><div class="preview-caption"><i></i>${t('Sample data · No sale is recorded')}</div><p class="canvas-tip">${t('Select a block on the receipt to edit it.')}</p></section>
+  <div class="receipt-designer"><section class="designer-panel block-palette"><div class="designer-section-title">⊞ <h2>${t('Add block')}</h2></div><p class="designer-hint">${t(isBarcodeDesigner()?'Build your barcode label one block at a time.':'Build your receipt one block at a time.')}</p><div id="block-palette"></div><div class="required-note"><span>▣</span><p>${t(isBarcodeDesigner()?'Product name, barcode and price are filled from your catalog.':'Receipt number, items and total are required. Their values come from each sale.')}</p></div></section>
+  <section class="designer-canvas">${isBarcodeDesigner()?`<label>${t('Preview product')}<select id="barcode-sample">${products.map(p=>`<option value="${p.id}" ${barcodeSample().id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')||`<option>${t('Sample product')}</option>`}</select></label>`:''}<div class="canvas-heading"><span>${t('LIVE PREVIEW')}</span><span id="canvas-width"></span></div><div class="paper-stage"><div id="designer-paper"></div></div><div class="preview-caption"><i></i>${t('Sample data · No sale is recorded')}</div><p class="canvas-tip">${t(isBarcodeDesigner()?'Select a block on the label to edit it.':'Select a block on the receipt to edit it.')}</p></section>
   <section class="designer-inspector"><div class="designer-panel"><div class="designer-section-title">▤ <h2>${t('Document')}</h2></div><label>${t('Paper width')}<div class="paper-widths">${[58,72,80].map(width=>`<button class="${receiptDraft.paperWidth===width?'selected':''}" data-width="${width}" aria-label="${width} mm" aria-pressed="${receiptDraft.paperWidth===width}">${width} mm</button>`).join('')}</div></label><div class="document-fields"><label>${t('Font')}<select id="design-font"><option value="monospace" ${receiptDraft.font==='monospace'?'selected':''}>${t('Monospace')}</option><option value="sans" ${receiptDraft.font==='sans'?'selected':''}>${t('Sans serif')}</option></select></label><label>${t('Text size')}<select id="design-font-size">${[10,11,12,13,14].map(size=>`<option value="${size}" ${receiptDraft.fontSize===size?'selected':''}>${size} px</option>`).join('')}</select></label></div><label class="feed-label">${t('Paper feed')}<span id="feed-value">${receiptDraft.feed} / 4</span><input id="design-feed" type="range" min="0" max="4" value="${receiptDraft.feed}"></label><p class="designer-hint">${t('Match the paper size in your printer settings.')}</p></div><div class="designer-panel" id="block-inspector"></div><div class="designer-panel printer-panel"><div class="designer-section-title">▣ <h2>${t('Printer connection')}</h2></div><p class="designer-hint">${t('Choose Bluetooth for BT-802 or browser printing for an installed printer.')}</p><div id="bluetooth-controls"></div><div id="printer-status"></div><button class="check-printer" id="check-printer">${t('Check connection')}</button></div><button class="reset-design" id="design-reset">↻ ${t('Restore default layout')}</button></section></div>`;
   $('#design-save').onclick=saveReceiptDesign;
   $('#check-printer').onclick=checkReceiptPrinter;
   renderBluetoothControls();
-  $('#design-discard').onclick=()=>{rememberReceipt();receiptDraft=cloneReceipt(receiptTemplate);selectedBlock=receiptDraft.blocks[0].id;receiptDirty=false;renderReceiptDesigner();};
-  $('#design-undo').onclick=()=>{if(!receiptUndo.length)return;receiptRedo.push(cloneReceipt(receiptDraft));receiptDraft=receiptUndo.pop();receiptDirty=receiptKey(receiptDraft)!==receiptKey(receiptTemplate);renderReceiptDesigner();};
-  $('#design-redo').onclick=()=>{if(!receiptRedo.length)return;receiptUndo.push(cloneReceipt(receiptDraft));receiptDraft=receiptRedo.pop();receiptDirty=receiptKey(receiptDraft)!==receiptKey(receiptTemplate);renderReceiptDesigner();};
-  $('#design-reset').onclick=async()=>{try{const defaults=await api('receipt-template?default=1');rememberReceipt();receiptDraft=defaults;receiptDirty=receiptKey(defaults)!==receiptKey(receiptTemplate);selectedBlock=defaults.blocks[0].id;renderReceiptDesigner();}catch(e){toast(t(e.message));}};
-  $('#design-test').onclick=()=>printContent(`<div class="sample-print">${t('SAMPLE — NOT A SALE')}</div>${renderReceipt(designerSample(),receiptDraft)}`,receiptDraft.paperWidth);
-  document.querySelectorAll('[data-width]').forEach(button=>button.onclick=()=>{rememberReceipt();receiptDraft.paperWidth=Number(button.dataset.width);receiptDirty=receiptKey(receiptDraft)!==receiptKey(receiptTemplate);renderReceiptDesigner();});
+  $('#design-discard').onclick=()=>{rememberReceipt();receiptDraft=cloneReceipt(designTemplate);selectedBlock=receiptDraft.blocks[0].id;receiptDirty=false;renderReceiptDesigner();};
+  $('#design-undo').onclick=()=>{if(!receiptUndo.length)return;receiptRedo.push(cloneReceipt(receiptDraft));receiptDraft=receiptUndo.pop();receiptDirty=receiptKey(receiptDraft)!==receiptKey(designTemplate);renderReceiptDesigner();};
+  $('#design-redo').onclick=()=>{if(!receiptRedo.length)return;receiptUndo.push(cloneReceipt(receiptDraft));receiptDraft=receiptRedo.pop();receiptDirty=receiptKey(receiptDraft)!==receiptKey(designTemplate);renderReceiptDesigner();};
+  $('#design-reset').onclick=async()=>{try{const mode=designerMode;const defaults=await api(designEndpoint()+'?default=1');if(designerMode!==mode||currentView!==mode)return;rememberReceipt();receiptDraft=defaults;receiptDirty=receiptKey(defaults)!==receiptKey(designTemplate);selectedBlock=defaults.blocks[0].id;renderReceiptDesigner();}catch(e){toast(t(e.message));}};
+  $('#design-test').onclick=()=>printContent(isBarcodeDesigner()?renderDesignerPreview():`<div class="sample-print">${t('SAMPLE — NOT A SALE')}</div>${renderDesignerPreview()}`,receiptDraft.paperWidth);
+  document.querySelectorAll('[data-width]').forEach(button=>button.onclick=()=>{rememberReceipt();receiptDraft.paperWidth=Number(button.dataset.width);receiptDirty=receiptKey(receiptDraft)!==receiptKey(designTemplate);renderReceiptDesigner();});
   $('#design-font').onchange=event=>{rememberReceipt();receiptDraft.font=event.target.value;markReceiptChanged();};
   $('#design-font-size').onchange=event=>{rememberReceipt();receiptDraft.fontSize=Number(event.target.value);markReceiptChanged();};
   $('#design-feed').oninput=event=>{rememberReceipt();receiptDraft.feed=Number(event.target.value);$('#feed-value').textContent=`${receiptDraft.feed} / 4`;markReceiptChanged();};
+  if($('#barcode-sample'))$('#barcode-sample').onchange=e=>{barcodeSampleId=Number(e.target.value);updateReceiptPreview();};
   renderBlockPalette();renderBlockInspector();updateReceiptPreview();
 }
 function renderBlockPalette() {
   const descriptions = {title:'A prominent store name or heading.',text:'Addresses, contact details and customer notes.',logo:'Your own store logo, printed in the header.',divider:'A visual rule between receipt sections.',spacer:'Extra breathing room between blocks.',payment:'Payment method, cash received and change.',barcode:'A scannable reference for this receipt.',qr:'Let customers scan to visit your Instagram page.'};
+  if(isBarcodeDesigner()){delete descriptions.payment;delete descriptions.barcode;delete descriptions.qr;}
   const icons={title:'T',text:'≡',logo:'▧',divider:'—',spacer:'↕',payment:'▣',barcode:'▥',qr:'▦'};
   $('#block-palette').innerHTML=Object.keys(descriptions).map(kind=>{
     const exists=['logo','payment','barcode','qr'].includes(kind)&&receiptDraft.blocks.some(b=>b.type===kind);
@@ -116,12 +153,12 @@ function renderBlockPalette() {
 }
 function updateReceiptPreview() {
   if(!$('#designer-paper'))return;
-  $('#designer-paper').innerHTML=renderReceipt(designerSample(),receiptDraft,true);
+  $('#designer-paper').innerHTML=renderDesignerPreview(true);
   $('#canvas-width').textContent=`${receiptDraft.paperWidth} mm`;
   $('#design-status').textContent=t(receiptDirty?'Unsaved changes':'All changes saved');
   $('#design-status').className=receiptDirty?'status-dirty':'status-saved';
   $('#design-save').disabled=receiptSaving||!receiptDirty||receiptDraft.blocks.some(b=>b.type==='qr'&&!validQRLink(b.url));
-  $('#design-test').disabled=receiptDraft.blocks.some(b=>b.type==='qr'&&!validQRLink(b.url));
+  $('#design-test').disabled=(isBarcodeDesigner()&&barcodeSample().barcode.length>18)||receiptDraft.blocks.some(b=>b.type==='qr'&&!validQRLink(b.url));
   $('#design-undo').disabled=!receiptUndo.length||receiptSaving;
   $('#design-redo').disabled=!receiptRedo.length||receiptSaving;
   $('#design-discard').disabled=!receiptDirty||receiptSaving;
@@ -134,8 +171,8 @@ function renderBlockInspector() {
   if(!receiptDraft.blocks.some(b=>b.id===selectedBlock))selectedBlock=receiptDraft.blocks[0]?.id;
   const index=receiptDraft.blocks.findIndex(b=>b.id===selectedBlock), block=receiptDraft.blocks[index];
   if(!block)return;
-  const required=lockedBlocks.has(block.type), textual=['text','title'].includes(block.type), columnLayout=['items','total','payment','divider','spacer'].includes(block.type);
-  $('#block-inspector').innerHTML=`<div class="designer-section-title">☷ <h2>${t('Selected block')}</h2></div><div class="selected-kind">${t(blockNames[block.type])}${required?` <span class="locked-tag">${t('Required')}</span>`:''}</div><label>${t('Alignment')}<div class="block-alignments">${['left','center','right'].map((align,i)=>`<button data-align="${align}" ${columnLayout?'disabled':''} class="${block.align===align?'selected':''}" aria-label="${t(['Align left','Align center','Align right'][i])}">${['≡','☰','≡'][i]}<small>${t(['Left','Center','Right'][i])}</small></button>`).join('')}</div></label><div class="document-fields"><label>${t('Size')}<select id="block-size">${['small','normal','large'].map(size=>`<option value="${size}" ${block.size===size?'selected':''}>${t({small:'Small',normal:'Normal',large:'Large'}[size])}</option>`).join('')}</select></label><label class="bold-toggle"><input type="checkbox" id="block-bold" ${block.bold?'checked':''}>${t('Bold')}</label></div><div class="block-actions"><button id="block-up" ${index===0?'disabled':''}>↑ ${t('Up')}</button><button id="block-down" ${index===receiptDraft.blocks.length-1?'disabled':''}>↓ ${t('Down')}</button><button id="block-delete" class="delete-block" ${required?'disabled':''}>${t('Delete')}</button></div>${textual?`<label>${t('Receipt text')}<textarea id="block-text" maxlength="1000" rows="4">${esc(receiptText(block))}</textarea></label>${block.preset?`<button class="auto-language" id="block-auto-text">${t('Use translated default text')}</button>`:''}`:''}${block.type==='logo'?`<label class="logo-upload">${t('Upload your logo')}<input id="block-logo" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="designer-hint">${t('PNG, JPEG or WebP · Up to 400 KB')}</p>`:''}${required?`<p class="designer-hint">${t('Sale data is filled automatically and cannot be replaced with custom text.')}</p>`:''}`;
+  const required=requiredBlock(block.type), textual=['text','title'].includes(block.type), columnLayout=['items','total','payment','divider','spacer'].includes(block.type);
+  $('#block-inspector').innerHTML=`<div class="designer-section-title">☷ <h2>${t('Selected block')}</h2></div><div class="selected-kind">${t(blockNames[block.type])}${required?` <span class="locked-tag">${t('Required')}</span>`:''}</div><label>${t('Alignment')}<div class="block-alignments">${['left','center','right'].map((align,i)=>`<button data-align="${align}" ${columnLayout?'disabled':''} class="${block.align===align?'selected':''}" aria-label="${t(['Align left','Align center','Align right'][i])}">${['≡','☰','≡'][i]}<small>${t(['Left','Center','Right'][i])}</small></button>`).join('')}</div></label><div class="document-fields"><label>${t('Size')}<select id="block-size">${['small','normal','large'].map(size=>`<option value="${size}" ${block.size===size?'selected':''}>${t({small:'Small',normal:'Normal',large:'Large'}[size])}</option>`).join('')}</select></label><label class="bold-toggle"><input type="checkbox" id="block-bold" ${block.bold?'checked':''}>${t('Bold')}</label></div><div class="block-actions"><button id="block-up" ${index===0?'disabled':''}>↑ ${t('Up')}</button><button id="block-down" ${index===receiptDraft.blocks.length-1?'disabled':''}>↓ ${t('Down')}</button><button id="block-delete" class="delete-block" ${required?'disabled':''}>${t('Delete')}</button></div>${textual?`<label>${t('Receipt text')}<textarea id="block-text" maxlength="1000" rows="4">${esc(receiptText(block))}</textarea></label>${block.preset?`<button class="auto-language" id="block-auto-text">${t('Use translated default text')}</button>`:''}`:''}${block.type==='logo'?`<label class="logo-upload">${t('Upload your logo')}<input id="block-logo" type="file" accept="image/png,image/jpeg,image/webp"></label><p class="designer-hint">${t('PNG, JPEG or WebP · Up to 400 KB')}</p>`:''}${required?`<p class="designer-hint">${t(isBarcodeDesigner()?'Product data is filled automatically from your catalog.':'Sale data is filled automatically and cannot be replaced with custom text.')}</p>`:''}`;
   const change=(field,value)=>{rememberReceipt();block[field]=value;markReceiptChanged();};
   document.querySelectorAll('[data-align]').forEach(button=>button.onclick=()=>{change('align',button.dataset.align);renderBlockInspector();});
   $('#block-size').onchange=event=>change('size',event.target.value);
@@ -147,7 +184,7 @@ function renderBlockInspector() {
     const target=index+offset;if(target<0||target>=receiptDraft.blocks.length)return;
     const next=[...receiptDraft.blocks];[next[index],next[target]]=[next[target],next[index]];
     if(!blockOrderValid(next))return toast(t('Place the total after the items.'));
-    rememberReceipt();receiptDraft.blocks=next;receiptDirty=receiptKey(receiptDraft)!==receiptKey(receiptTemplate);renderReceiptDesigner();
+    rememberReceipt();receiptDraft.blocks=next;receiptDirty=receiptKey(receiptDraft)!==receiptKey(designTemplate);renderReceiptDesigner();
   };
   $('#block-up').onclick=()=>move(-1);$('#block-down').onclick=()=>move(1);
   if($('#block-logo'))$('#block-logo').onchange=async event=>{
@@ -167,10 +204,18 @@ function renderBlockInspector() {
 async function saveReceiptDesign() {
   if(receiptSaving||!receiptDirty)return;
   if(receiptDraft.blocks.some(b=>b.type==='qr'&&!validQRLink(b.url)))return toast(t('Enter a valid HTTP or HTTPS link for the QR code.'));
-  const submitted=cloneReceipt(receiptDraft);receiptSaving=true;updateReceiptPreview();
-  try{receiptTemplate=await api('receipt-template',submitted);receiptDirty=receiptKey(receiptDraft)!==receiptKey(receiptTemplate);toast(t('Receipt design saved.'));}
-  catch(error){toast(t(error.message));}
-  finally{receiptSaving=false;if(currentView==='designer')updateReceiptPreview();}
+  const submitted=cloneReceipt(receiptDraft), mode=designerMode, endpoint=designEndpoint();receiptSaving=true;updateReceiptPreview();
+  try{
+    const saved=await api(endpoint,submitted);
+    if(mode==='barcode-designer')barcodeTemplate=saved;else receiptTemplate=saved;
+    if(designerMode===mode){designTemplate=saved;receiptDirty=receiptKey(receiptDraft)!==receiptKey(saved);}
+    else {const state=designerStates.get(mode);if(state)state.dirty=receiptKey(state.draft)!==receiptKey(saved);}
+    toast(t(mode==='barcode-designer'?'Barcode design saved.':'Receipt design saved.'));
+  }catch(error){toast(t(error.message));}
+  finally{
+    if(designerMode===mode)receiptSaving=false;else {const state=designerStates.get(mode);if(state)state.saving=false;}
+    if(currentView===mode)updateReceiptPreview();
+  }
 }
 async function checkReceiptPrinter() {
   const button=$('#check-printer');button.disabled=true;

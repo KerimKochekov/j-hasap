@@ -64,3 +64,25 @@ const bytes=Buffer.from(raster.data,'base64');
 assert.equal(bytes.length,48);assert.equal(bytes[0],0x81);assert.equal(bytes[1],0x80);
 assert.ok(bytes.subarray(2).every(byte=>byte===0));
 console.log('Printer raster bit order and transparent pixels passed.');
+
+context.labelDefaults=JSON.parse(require('node:child_process').execFileSync(process.env.POS_TEST_PYTHON || 'python3', ['-c','import json; from receipt_config import default_barcode_template; print(json.dumps(default_barcode_template()))'],{encoding:'utf8'}));
+context.sampleProduct={id:1,name:'Dress <sale>',barcode:'123456',price:2599};
+const label=vm.runInContext('renderBarcodeLabel(sampleProduct,labelDefaults)',context);
+assert.ok(label.includes('Dress &lt;sale&gt;'));
+assert.ok(label.includes('25.99 TMT'));
+assert.ok(label.includes('123456'));
+vm.runInContext("designTemplate=defaults;receiptTemplate=defaults;barcodeTemplate=labelDefaults;startReceiptDraft();receiptDraft.fontSize=14;receiptDirty=true;activateDesigner('barcode-designer');startReceiptDraft();receiptDraft.fontSize=10;activateDesigner('designer');",context);
+assert.equal(vm.runInContext('receiptDraft.fontSize',context),14);
+vm.runInContext("activateDesigner('barcode-designer');",context);
+assert.equal(vm.runInContext('receiptDraft.fontSize',context),10);
+assert.equal(vm.runInContext('receiptTemplate.fontSize',context),12);
+console.log('Barcode rendering and independent designer drafts passed.');
+
+const digitCalls=[];
+context.digitCtx={save(){},restore(){},fillRect(){},measureText(){return {width:15.1};},fillText(...args){digitCalls.push(args);}};
+vm.runInContext("drawThermalAmount(digitCtx,'9.99',{x:10.2,y:20.6,width:70.3,height:36.2},25.4)",context);
+assert.deepEqual(digitCalls.map(call=>call[0]),['9','.','9','9']);
+assert.ok(digitCalls.every(call=>Number.isInteger(call[1])&&Number.isInteger(call[2])));
+assert.equal(digitCalls[1][1]-digitCalls[0][1],digitCalls[3][1]-digitCalls[2][1]);
+assert.equal(context.digitCtx.font,'400 25px "Courier New", monospace');
+console.log('Thermal amounts use consistent glyph spacing on whole printer dots.');

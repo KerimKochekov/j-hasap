@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from bluetooth_printer import PRINT_LOCK, WRITE_UUID, STATUS_UUID, check_status, raster_packets, run_bridge, validate_raster, worker
+from bluetooth_printer import PRINT_LOCK, WRITE_UUID, STATUS_UUID, check_status, raster_packets, run_bridge, validate_raster, worker, send_packets, TRANSFER_BYTES_PER_SECOND
 
 
 class BluetoothPrinterTests(unittest.TestCase):
@@ -39,6 +39,35 @@ class BluetoothPrinterTests(unittest.TestCase):
             reconstructed.extend(packet[8:])
         self.assertEqual(bytes(reconstructed), data)
         self.assertEqual(packets[-1], b'\x1bJ\x20')
+
+    def test_fast_transfer_preserves_all_bytes_and_negotiated_limits(self):
+        data = bytes(i % 256 for i in range(576//8*257))
+        packets = list(raster_packets(576,257,data))
+        for limit,expected in [(20,20),(64,64),(244,180),(512,180),(None,20)]:
+            with self.subTest(limit=limit):
+                writes=[]
+                async def write(char,chunk,response):
+                    self.assertFalse(response)
+                    self.assertLessEqual(len(chunk),expected)
+                    writes.append(chunk)
+                client=SimpleNamespace(write_gatt_char=write)
+                characteristic=SimpleNamespace(max_write_without_response_size=limit)
+                with patch('bluetooth_printer.asyncio.sleep',new=AsyncMock()) as sleep:
+                    sent,chunk_size=asyncio.run(send_packets(client,characteristic,packets))
+                self.assertEqual(b''.join(writes),b''.join(packets))
+                self.assertEqual(chunk_size,expected)
+                self.assertEqual(sent,len(b''.join(packets)))
+                total_pause=sum(call.args[0] for call in sleep.call_args_list)
+                self.assertAlmostEqual(total_pause,sent/TRANSFER_BYTES_PER_SECOND)
+                self.assertLess(total_pause,(sent/20)*.008)
+
+    def test_fast_transfer_stops_on_error_without_retrying(self):
+        client=SimpleNamespace(write_gatt_char=AsyncMock(side_effect=OSError('Disconnected')))
+        with patch('bluetooth_printer.asyncio.sleep',new=AsyncMock()) as sleep:
+            with self.assertRaises(OSError):
+                asyncio.run(send_packets(client,SimpleNamespace(max_write_without_response_size=20),[bytes(200)]))
+            self.assertEqual(client.write_gatt_char.call_count,1)
+            sleep.assert_not_called()
 
     def test_white_paper_and_black_text_are_not_reversed(self):
         app_pixels = bytes([0x80,0x00,0xff]) + bytes(69)

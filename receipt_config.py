@@ -25,7 +25,7 @@ REQUIRED = {'meta','items','total'}
 def default_template():
     return copy.deepcopy(DEFAULT_TEMPLATE)
 
-def validate_template(value):
+def validate_template(value, barcode=False):
     if not isinstance(value, dict) or value.get('version') != 1:
         raise ValueError('Invalid receipt design.')
     width, font, size, feed = (value.get(k) for k in ('paperWidth','font','fontSize','feed'))
@@ -33,6 +33,8 @@ def validate_template(value):
         raise ValueError('Invalid receipt design.')
     if type(size) is not int or not 10 <= size <= 14 or type(feed) is not int or not 0 <= feed <= 4:
         raise ValueError('Invalid receipt design.')
+    required = {'product_name','product_barcode','product_price'} if barcode else REQUIRED
+    types = {'product_name','product_barcode','product_price','title','text','divider','spacer','logo'} if barcode else TYPES
     blocks = value.get('blocks')
     if not isinstance(blocks,list) or not 3 <= len(blocks) <= 30:
         raise ValueError('Use between 3 and 30 receipt blocks.')
@@ -41,7 +43,7 @@ def validate_template(value):
         if not isinstance(block,dict):
             raise ValueError('Invalid receipt block.')
         kind, bid = block.get('type'), block.get('id')
-        if kind not in TYPES or not isinstance(bid,str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}',bid) or bid in ids:
+        if kind not in types or not isinstance(bid,str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}',bid) or bid in ids:
             raise ValueError('Invalid receipt block.')
         ids.add(bid)
         counts[kind] = counts.get(kind,0)+1
@@ -85,10 +87,28 @@ def validate_template(value):
                 raise ValueError('QR caption must be 150 characters or fewer.')
             clean.update(url=url,caption=caption)
         result.append(clean)
-    if any(counts.get(kind)!=1 for kind in REQUIRED) or any(counts.get(kind,0)>1 for kind in ('payment','barcode','logo','qr')):
+    if any(counts.get(kind)!=1 for kind in required) or any(counts.get(kind,0)>1 for kind in ('payment','barcode','logo','qr')):
         raise ValueError('Keep one receipt number, items and total block.')
     # Keep the receipt data easy to interpret even when decorative blocks move.
     order = [block['type'] for block in result]
-    if order.index('items') > order.index('total'):
+    if not barcode and order.index('items') > order.index('total'):
         raise ValueError('Place the total after the items.')
     return {'version':1,'paperWidth':width,'font':font,'fontSize':size,'feed':feed,'blocks':result}
+
+DEFAULT_BARCODE_TEMPLATE = {
+    'version':1,'paperWidth':80,'font':'sans','fontSize':12,'feed':0,
+    'blocks':[
+        {'id':'name','type':'product_name','align':'center','size':'normal','bold':True},
+        {'id':'code','type':'product_barcode','align':'center','size':'normal','bold':False},
+        {'id':'price','type':'product_price','align':'center','size':'normal','bold':True},
+    ]
+}
+
+def default_barcode_template():
+    return copy.deepcopy(DEFAULT_BARCODE_TEMPLATE)
+
+def validate_barcode_template(value):
+    try:
+        return validate_template(value, barcode=True)
+    except ValueError as error:
+        raise ValueError(str(error).replace('receipt number, items and total','product name, barcode and price').replace('receipt','barcode'))

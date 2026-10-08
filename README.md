@@ -125,3 +125,13 @@ Includes local inventory, price history, sales, receipt design, and reporting. D
 - [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), bundled in `vendor-qrcode.js`; see `LICENSE-qrcode.txt`.
 - [html2canvas](https://github.com/niklasvh/html2canvas), bundled in `vendor-html2canvas.js`; see `LICENSE-html2canvas.txt`.
 - [Bleak](https://github.com/hbldh/bleak), installed only for optional Bluetooth printing; see `requirements-printer.txt`.
+
+### Barcode designer
+
+Open **Barcode designer** to customize product labels with the same block editor as receipts. Choose a preview product, change the paper width, font, block order and text, then click **Save design**. Product name, Code 39 barcode and price come from the catalog. The saved label layout is used by **Print barcode** on the Products page. **Print sample** offers browser or BT-802 printing with a Bluetooth connection check. Barcode and receipt designs are saved separately.
+
+### Discounts and quantity history
+
+Checkout has one **Discount (%)** field that applies to all products. Each discounted unit price is rounded to cents and saved with the sale, so receipts, sales history and revenue keep the sold prices after catalog edits.
+
+For existing products, choose **Add quantity** or **Remove quantity**, enter the quantity and an optional description, then **Save product**. Product history shows additions in green and removals, including sales, in red. Sales log quantities show positive units sold.

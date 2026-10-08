@@ -12,7 +12,7 @@ import subprocess
 import sys
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
-from receipt_config import default_template, validate_template
+from receipt_config import default_template, validate_template, default_barcode_template, validate_barcode_template
 from bluetooth_printer import PRINT_BLOCK_REASON, available as bluetooth_available, run_bridge
 
 ROOT = Path(__file__).resolve().parent
@@ -44,9 +44,22 @@ def initialize():
           id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id),
           changed_at TEXT NOT NULL, old_price INTEGER, new_price INTEGER NOT NULL,
           source TEXT NOT NULL CHECK(source IN ('baseline','initial','change')));
+        CREATE TABLE IF NOT EXISTS product_stock_history (
+          id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id),
+          changed_at TEXT NOT NULL, delta INTEGER NOT NULL CHECK(delta != 0),
+          remaining INTEGER NOT NULL, description TEXT NOT NULL DEFAULT '');
+        CREATE INDEX IF NOT EXISTS stock_history_product ON product_stock_history(product_id,id);
         CREATE INDEX IF NOT EXISTS price_history_product ON product_price_history(product_id,id);
         CREATE INDEX IF NOT EXISTS sale_items_product ON sale_items(product_id,sale_id);
         ''')
+        item_columns = {r['name'] for r in db.execute('PRAGMA table_info(sale_items)')}
+        if 'original_price' not in item_columns:
+            db.execute('ALTER TABLE sale_items ADD COLUMN original_price INTEGER')
+        if 'discount' not in item_columns:
+            db.execute('ALTER TABLE sale_items ADD COLUMN discount INTEGER NOT NULL DEFAULT 0 CHECK(discount >= 0)')
+        db.execute('UPDATE sale_items SET original_price=price WHERE original_price IS NULL')
+        if 'discount_percent' not in {r['name'] for r in db.execute('PRAGMA table_info(sales)')}:
+            db.execute('ALTER TABLE sales ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0')
         if 'receipt_template' not in {r['name'] for r in db.execute('PRAGMA table_info(sales)')}:
             db.execute('ALTER TABLE sales ADD COLUMN receipt_template TEXT')
         if 'stock' not in {r['name'] for r in db.execute('PRAGMA table_info(products)')}:
@@ -58,6 +71,11 @@ def initialize():
                    SELECT id,?,NULL,price,'baseline' FROM products p
                    WHERE NOT EXISTS (SELECT 1 FROM product_price_history h WHERE h.product_id=p.id)""",
                    (datetime.now().astimezone().isoformat(timespec='seconds'),))
+
+def get_barcode_template(db):
+    row = db.execute("SELECT value FROM settings WHERE key='barcode_template'").fetchone()
+    return json.loads(row['value']) if row else default_barcode_template()
+
 
 def get_receipt_template(db):
     row = db.execute("SELECT value FROM settings WHERE key='receipt_template'").fetchone()
@@ -147,13 +165,36 @@ def save_product(db, body):
         db.execute("INSERT INTO product_price_history(product_id,changed_at,old_price,new_price,source) VALUES(?,?,NULL,?,'initial')",
                    (pid,changed_at,fields[2]))
     else:
-        previous = db.execute('SELECT price FROM products WHERE id=? AND active=1',(pid,)).fetchone()
+        previous = db.execute('SELECT price,stock FROM products WHERE id=? AND active=1',(pid,)).fetchone()
         if previous is None:
             raise ValueError('Product not found.')
-        db.execute('UPDATE products SET name=?,barcode=?,price=?,stock=?,image=? WHERE id=? AND active=1', (*fields,pid))
+        adjustment = body.get('stock_adjustment')
+        delta, description = 0, ''
+        if adjustment is not None:
+            if not isinstance(adjustment,dict):
+                raise ValueError('Invalid quantity adjustment.')
+            amount, direction = adjustment.get('quantity'), adjustment.get('direction')
+            description = adjustment.get('description','')
+            if type(amount) is not int or not 1 <= amount <= 1000000 or direction not in ('add','remove'):
+                raise ValueError('Enter a whole quantity greater than zero.')
+            if not isinstance(description,str) or len(description) > 500:
+                raise ValueError('Description must be 500 characters or fewer.')
+            description = description.strip()
+            delta = amount if direction == 'add' else -amount
+        stock = previous['stock'] + delta
+        if not 0 <= stock <= 1000000:
+            raise ValueError('Quantity adjustment exceeds available stock or the stock limit.')
+        db.execute('UPDATE products SET name=?,barcode=?,price=?,stock=?,image=? WHERE id=? AND active=1',
+                   (fields[0],fields[1],fields[2],stock,fields[4],pid))
+        if delta:
+            db.execute('INSERT INTO product_stock_history(product_id,changed_at,delta,remaining,description) VALUES(?,?,?,?,?)',
+                       (pid,changed_at,delta,stock,description))
         if previous['price'] != fields[2]:
             db.execute("INSERT INTO product_price_history(product_id,changed_at,old_price,new_price,source) VALUES(?,?,?,?,'change')",
                        (pid,changed_at,previous['price'],fields[2]))
+    if body.get('id') is None and fields[3]:
+        db.execute('INSERT INTO product_stock_history(product_id,changed_at,delta,remaining,description) VALUES(?,?,?,?,?)',
+                   (pid,changed_at,fields[3],fields[3],''))
     return {'id':pid}
 
 def product_detail(db, pid):
@@ -167,6 +208,13 @@ def product_detail(db, pid):
         SELECT s.id sale_id,s.created_at,s.payment,i.name,i.price,i.quantity,i.price*i.quantity total
         FROM sale_items i JOIN sales s ON s.id=i.sale_id WHERE i.product_id=?
         ORDER BY s.created_at DESC,s.id DESC,i.id DESC''',(pid,))]
+    result['stock_history'] = [dict(r) for r in db.execute("""
+        SELECT changed_at,delta,remaining,description,NULL sale_id,'adjustment' source,id sort_id
+        FROM product_stock_history WHERE product_id=?
+        UNION ALL
+        SELECT s.created_at,-i.quantity,NULL,'',s.id,'sale',i.id
+        FROM sale_items i JOIN sales s ON s.id=i.sale_id WHERE i.product_id=?
+        ORDER BY changed_at DESC,sort_id DESC""",(pid,pid))]
     result['units_sold'] = sum(row['quantity'] for row in result['sales'])
     result['sales_revenue'] = sum(row['total'] for row in result['sales'])
     return result
@@ -176,6 +224,13 @@ def complete_sale(body):
     payment = body.get('payment')
     if payment not in ('Cash', 'Card', 'Other') or not isinstance(lines, list) or not 1 <= len(lines) <= 500:
         raise ValueError('Choose a payment method and add products to the basket.')
+    try:
+        percent = Decimal(str(body.get('discount_percent', 0)))
+        if not percent.is_finite() or not 0 <= percent <= 100 or percent*100 != (percent*100).to_integral_value():
+            raise ValueError()
+        percent_basis_points = int(percent*100)
+    except (InvalidOperation, ValueError):
+        raise ValueError('Enter a discount from 0 to 100%.')
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
         items, seen, total = [], set(), 0
@@ -191,19 +246,21 @@ def complete_sale(body):
                 raise ValueError('A product price changed. Clear and rebuild the basket before completing the sale.')
             if qty > p['stock']:
                 raise ValueError('Not enough stock. Review the available quantities in your basket.')
-            items.append((p, qty))
-            total += p['price'] * qty
+            discounted_price = (p['price']*(10000-percent_basis_points)+5000)//10000
+            discount = p['price']-discounted_price
+            items.append((p, qty, discount))
+            total += (p['price'] - discount) * qty
         tendered = cents(body.get('tendered', 0)) if payment == 'Cash' else total
         if tendered < total:
             raise ValueError('Cash received must cover the total.')
         created = datetime.now().astimezone().isoformat(timespec='seconds')
-        sid = db.execute('INSERT INTO sales(created_at,total,payment,tendered,receipt_template) VALUES(?,?,?,?,?)',
-                         (created, total, payment, tendered, json.dumps(get_receipt_template(db)))).lastrowid
-        db.executemany('INSERT INTO sale_items(sale_id,product_id,name,barcode,price,quantity) VALUES(?,?,?,?,?,?)',
-                       [(sid, p['id'], p['name'], p['barcode'], p['price'], q) for p, q in items])
-        db.executemany('UPDATE products SET stock=stock-? WHERE id=?', [(q, p['id']) for p, q in items])
+        sid = db.execute('INSERT INTO sales(created_at,total,payment,tendered,receipt_template,discount_percent) VALUES(?,?,?,?,?,?)',
+                         (created, total, payment, tendered, json.dumps(get_receipt_template(db)), percent_basis_points)).lastrowid
+        db.executemany('INSERT INTO sale_items(sale_id,product_id,name,barcode,price,quantity,original_price,discount) VALUES(?,?,?,?,?,?,?,?)',
+                       [(sid, p['id'], p['name'], p['barcode'], p['price']-d, q, p['price'], d) for p, q, d in items])
+        db.executemany('UPDATE products SET stock=stock-? WHERE id=?', [(q, p['id']) for p, q, d in items])
         result = sale_detail(db, sid)
-        result['remaining_stock'] = {str(p['id']):p['stock']-q for p, q in items}
+        result['remaining_stock'] = {str(p['id']):p['stock']-q for p, q, d in items}
         return result
 
 def sale_detail(db, sid):
@@ -229,6 +286,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         try:
             with connect() as db:
+                if url.path == '/api/barcode-template':
+                    return self.respond(default_barcode_template() if parse_qs(url.query).get('default')==['1'] else get_barcode_template(db))
                 if url.path == '/api/receipt-template':
                     return self.respond(default_template() if parse_qs(url.query).get('default')==['1'] else get_receipt_template(db))
                 if url.path == '/api/printer-status':
@@ -274,7 +333,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                 return self.respond({'error':'JSON content required'}, 415)
             length = int(self.headers.get('Content-Length', '0'))
-            maximum = 900000 if self.path == '/api/bluetooth/print' else (650000 if self.path in ('/api/receipt-template','/api/products') else 100000)
+            maximum = 900000 if self.path == '/api/bluetooth/print' else (650000 if self.path in ('/api/receipt-template','/api/barcode-template','/api/products') else 100000)
             if not 0 < length <= maximum:
                 raise ValueError('Invalid request size.')
             body = json.loads(self.rfile.read(length))
@@ -306,6 +365,11 @@ class Handler(BaseHTTPRequestHandler):
                     settings['method'] = method
                     save_print_settings(db, settings)
                 return self.respond(settings)
+            if self.path == '/api/barcode-template':
+                template = validate_barcode_template(body)
+                with connect() as db:
+                    db.execute("INSERT INTO settings(key,value) VALUES('barcode_template',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(template),))
+                return self.respond(template)
             if self.path == '/api/receipt-template':
                 template = validate_template(body)
                 with connect() as db:

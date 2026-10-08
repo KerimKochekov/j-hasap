@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent
 PRINT_LOCK = threading.Lock()
 PRINT_BLOCK_REASON = ''
 MAX_HEIGHT = 8000
+TRANSFER_BYTES_PER_SECOND = 8000
+MAX_WRITE_CHUNK = 180
 WRITE_UUID = '0000ff02-0000-1000-8000-00805f9b34fb'
 STATUS_UUID = '0000ff01-0000-1000-8000-00805f9b34fb'
 SERVICE_UUID = '0000ff00-0000-1000-8000-00805f9b34fb'
@@ -50,6 +52,24 @@ def raster_packets(width, height, data):
         bitmap = data[top * row_bytes:(top + rows) * row_bytes]
         yield b'\x1dv0\x00' + row_bytes.to_bytes(2, 'little') + rows.to_bytes(2, 'little') + bitmap
     yield b'\x1bJ\x20'  # Only 32 dots of extra feed for tear-off.
+
+
+async def send_packets(client, characteristic, packets):
+    """Use negotiated BLE payload sizes with a bounded printer input rate.
+
+    Keep each raster band intact and await every write; never retry a partial job.
+    Cap larger negotiated payloads to limit the printer's receive-buffer burst.
+    """
+    limit = getattr(characteristic, 'max_write_without_response_size', 20)
+    chunk_size = min(limit, MAX_WRITE_CHUNK) if type(limit) is int and limit > 0 else 20
+    sent = 0
+    for packet in packets:
+        for offset in range(0, len(packet), chunk_size):
+            chunk = packet[offset:offset + chunk_size]
+            await client.write_gatt_char(characteristic, chunk, response=False)
+            sent += len(chunk)
+            await asyncio.sleep(len(chunk) / TRANSFER_BYTES_PER_SECOND)
+    return sent, chunk_size
 
 
 def check_status(status, kind=2):
@@ -181,15 +201,7 @@ async def worker(request):
             packets = []
         else:
             raise ValueError('Unknown Bluetooth printer action.')
-        # Retain conservative BLE pacing; transport success is not print proof.
-        chunk_size = 20
-        sent = 0
-        for packet in packets:
-            for offset in range(0, len(packet), chunk_size):
-                chunk = packet[offset:offset + chunk_size]
-                await client.write_gatt_char(characteristic, chunk, response=False)
-                sent += len(chunk)
-                await asyncio.sleep(.008)
+        sent, chunk_size = await send_packets(client, characteristic, packets)
         if sent:
             await asyncio.sleep(1)
             status = await read_status(2)
@@ -197,7 +209,7 @@ async def worker(request):
             paper_status = await read_status(4)
             check_status(paper_status, 4)
         return {'ok': True, 'deviceId': device.address, 'name': device.name, 'bytesSent': sent,
-                'status':status, 'paperStatus':paper_status, 'protocol':'escpos'}
+                'status':status, 'paperStatus':paper_status, 'protocol':'escpos', 'chunkSize':chunk_size}
 
 
 if __name__ == '__main__':

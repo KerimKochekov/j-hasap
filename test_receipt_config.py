@@ -68,4 +68,40 @@ class ReceiptPersistenceTests(unittest.TestCase):
             self.assertEqual(saved['total'],2500)
             self.assertEqual(saved['receipt_template'],default_template())
 
+class BarcodeTemplateTests(unittest.TestCase):
+    def test_defaults_and_custom_layout_are_valid(self):
+        from receipt_config import default_barcode_template,validate_barcode_template
+        design=default_barcode_template()
+        self.assertEqual(validate_barcode_template(design),design)
+        design['paperWidth']=58
+        design['blocks'].insert(0,{'id':'custom','type':'text','text':'Shop <name>','align':'left','size':'small','bold':False})
+        self.assertEqual(validate_barcode_template(design),design)
+        self.assertEqual(len(default_barcode_template()['blocks']),3)
+
+    def test_required_product_blocks_and_receipt_blocks_are_rejected(self):
+        from receipt_config import default_barcode_template,validate_barcode_template
+        design=default_barcode_template()
+        for kind in ['items','meta','total','payment','qr']:
+            broken=default_barcode_template();broken['blocks'][0]['type']=kind
+            with self.assertRaises(ValueError):validate_barcode_template(broken)
+        design['blocks'][0]['type']='product_price'
+        with self.assertRaises(ValueError):validate_barcode_template(design)
+
+    def test_barcode_and_receipt_settings_are_independent(self):
+        from receipt_config import default_barcode_template
+        import server,json,tempfile
+        from pathlib import Path
+        old=server.DB
+        with tempfile.TemporaryDirectory() as directory:
+            try:
+                server.DB=Path(directory)/'test.sqlite3';server.initialize()
+                with server.connect() as db:
+                    design=default_barcode_template();design['fontSize']=14
+                    db.execute("INSERT INTO settings(key,value) VALUES('barcode_template',?)",(json.dumps(design),))
+                    self.assertEqual(server.get_barcode_template(db),design)
+                    self.assertEqual(server.get_receipt_template(db),default_template())
+                server.initialize()
+                with server.connect() as db:self.assertEqual(server.get_barcode_template(db),design)
+            finally:server.DB=old
+
 if __name__=='__main__':unittest.main()

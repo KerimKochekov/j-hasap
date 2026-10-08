@@ -608,3 +608,82 @@ Object.assign(translations.ru, {
   "Enter a valid HTTP or HTTPS link for the QR code.": "Введите корректную ссылку HTTP или HTTPS для QR-кода.",
   "QR caption must be 150 characters or fewer.": "Подпись под QR-кодом должна содержать не более 150 символов."
 });
+
+Object.assign(translations.tk, {
+  "Discount (%)": "Arzanladyş (%)",
+  "Applies to all products": "Ähli harytlara ulanylýar",
+  "Enter a discount from 0 to 100%.": "0-dan 100%-e çenli arzanladyş giriziň."
+});
+Object.assign(translations.ru, {
+  "Discount (%)": "Скидка (%)",
+  "Applies to all products": "Применяется ко всем товарам",
+  "Enter a discount from 0 to 100%.": "Введите скидку от 0 до 100%."
+});
+
+Object.assign(translations.tk, {
+  "Add quantity": "Mukdar goşmak",
+  "Remove quantity": "Mukdary aýyrmak",
+  "Description (optional)": "Düşündiriş (hökmany däl)",
+  "Cancel quantity change": "Mukdar üýtgetmesini ýatyrmak",
+  "Quantity to add": "Goşuljak mukdar",
+  "Quantity to remove": "Aýryljak mukdar",
+  "Quantity history": "Mukdaryň taryhy",
+  "Stock changes and sales, newest first.": "Mukdar üýtgemeleri we satuwlar, iň täzesi ilki.",
+  "Description": "Düşündiriş",
+  "Sale": "Satuw",
+  "Quantity added": "Mukdar goşuldy",
+  "Quantity removed": "Mukdar aýryldy",
+  "No quantity changes yet.": "Mukdar entek üýtgemedi.",
+  "Invalid quantity adjustment.": "Mukdar üýtgetmesi nädogry.",
+  "Enter a whole quantity greater than zero.": "Noldan uly bitin mukdar giriziň.",
+  "Description must be 500 characters or fewer.": "Düşündiriş 500 nyşandan köp bolmaly däl.",
+  "Quantity adjustment exceeds available stock or the stock limit.": "Mukdar üýtgetmesi elýeterli mukdardan ýa-da çäkden geçýär."
+});
+
+Object.assign(translations.ru, {
+  "Add quantity": "Добавить количество",
+  "Remove quantity": "Уменьшить количество",
+  "Description (optional)": "Описание (необязательно)",
+  "Cancel quantity change": "Отменить изменение количества",
+  "Quantity to add": "Количество для добавления",
+  "Quantity to remove": "Количество для удаления",
+  "Quantity history": "История количества",
+  "Stock changes and sales, newest first.": "Изменения запасов и продажи, сначала новые.",
+  "Description": "Описание",
+  "Sale": "Продажа",
+  "Quantity added": "Количество добавлено",
+  "Quantity removed": "Количество уменьшено",
+  "No quantity changes yet.": "Изменений количества пока нет.",
+  "Invalid quantity adjustment.": "Некорректное изменение количества.",
+  "Enter a whole quantity greater than zero.": "Введите целое количество больше нуля.",
+  "Description must be 500 characters or fewer.": "Описание должно содержать не более 500 символов.",
+  "Quantity adjustment exceeds available stock or the stock limit.": "Изменение превышает доступный запас или допустимый предел."
+});
+
+Object.assign(translations.tk, {
+  "Barcode designer": "Ştrih-kod dizaýneri",
+  "Design product labels with a live preview.": "Haryt etiketkalaryny janly deslapky görnüş bilen düzüň.",
+  "Product barcode": "Harydyň ştrih-kody",
+  "Product price": "Harydyň bahasy",
+  "Preview product": "Deslapky haryt",
+  "Barcode is too long for this label.": "Ştrih-kod bu etiketka üçin gaty uzyn.",
+  "Build your barcode label one block at a time.": "Ştrih-kod etiketkasyny bloklar bilen düzüň.",
+  "Product name, barcode and price are filled from your catalog.": "Harydyň ady, ştrih-kody we bahasy katalogdan alynýar.",
+  "Select a block on the label to edit it.": "Üýtgetmek üçin etiketkada blok saýlaň.",
+  "Product data is filled automatically from your catalog.": "Haryt maglumatlary katalogdan awtomatiki doldurylýar.",
+  "Barcode design saved.": "Ştrih-kod dizaýny ýatda saklandy."
+});
+
+Object.assign(translations.ru, {
+  "Barcode designer": "Дизайнер штрихкодов",
+  "Design product labels with a live preview.": "Создавайте этикетки товаров с предпросмотром.",
+  "Product barcode": "Штрихкод товара",
+  "Product price": "Цена товара",
+  "Preview product": "Товар для предпросмотра",
+  "Barcode is too long for this label.": "Штрихкод слишком длинный для этой этикетки.",
+  "Build your barcode label one block at a time.": "Создавайте этикетку штрихкода из блоков.",
+  "Product name, barcode and price are filled from your catalog.": "Название, штрихкод и цена берутся из каталога.",
+  "Select a block on the label to edit it.": "Выберите блок на этикетке для редактирования.",
+  "Product data is filled automatically from your catalog.": "Данные товара автоматически заполняются из каталога.",
+  "Barcode design saved.": "Дизайн штрихкода сохранён."
+});

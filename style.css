@@ -18,3 +18,8 @@ nav button span{overflow-wrap:anywhere}
 @media(max-width:800px){.product-history-grid{grid-template-columns:1fr}.history-metrics{grid-template-columns:repeat(2,1fr)}#product-history-dialog{padding:20px}.history-product h2{font-size:20px}}
 
 .job-printer-status{font-size:12px;line-height:1.7;margin:18px 0;color:var(--muted);min-height:40px}#job-print-confirm{margin-top:20px;text-align:center}#job-printer-check{width:100%}
+
+
+#sale-discount:invalid{border-color:#b14545}
+
+.stock-edit-buttons{display:flex;gap:10px;margin:0 0 16px}.stock-edit-buttons button{flex:1;border:1px solid transparent;border-radius:7px;padding:10px;font-size:12px;font-weight:600}.stock-add{background:#e6f5eb;color:#176b54}.stock-remove{background:#fce8e8;color:#ad3838}.stock-edit-buttons .selected{border-color:currentColor;box-shadow:0 0 0 2px #00000008}#stock-adjustment-fields{border:1px solid var(--line);padding:14px;border-radius:8px;margin-bottom:18px}textarea{font:inherit;display:block;width:100%;padding:10px;margin-top:7px;border:1px solid #dfe5e9;border-radius:6px;resize:vertical}input[readonly]{background:#f5f7f6}.stock-positive{color:#176b54}.stock-negative{color:#ad3838}.stock-history-section{margin-top:30px;border-top:1px solid var(--line);padding-top:24px}.stock-history-section td{overflow-wrap:anywhere}
