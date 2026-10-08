@@ -80,6 +80,33 @@ All local records, stock, price history, receipt settings, and uploaded pictures
 
 **Update:** stop the server, back up the database, run `git pull`, then restart the server and refresh the browser. Startup automatically applies database migrations without resetting existing sales or stock. If dependencies changed, rerun the optional printer installation command.
 
+### Separate reset endpoints
+
+Send a JSON `POST` with an empty object (`{}`) to either local endpoint:
+
+| Endpoint | Clears | Preserves |
+| --- | --- | --- |
+| `/api/products/reset` | All products, including archived products, and their price and stock adjustment histories | Sales and their saved receipt/item details |
+| `/api/sales/reset` | All sales and sale items, including sales reports and product sales logs | Products, current stock, and price/stock adjustment histories |
+
+Both endpoints preserve receipt designs, barcode designs, and printer settings. Clearing sales history does not return sold quantities to stock. Responses include `ok: true` and a `deleted` object with the number of removed rows per table. Repeating a reset on empty data returns zero counts.
+
+Keep the local server running, open **PowerShell**, and run the command for the data you want to clear. Each command permanently deletes its selected data.
+
+Clear products while keeping sales:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8765/api/products/reset' -Method Post -ContentType 'application/json' -Body '{}'
+```
+
+Clear sales history while keeping products and current stock:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8765/api/sales/reset' -Method Post -ContentType 'application/json' -Body '{}'
+```
+
+A successful PowerShell response shows `ok` as `True`. Refresh the app afterward. If the server uses a custom port, replace `8765` in the command with that port.
+
 ### Custom port or database
 
 ```sh

@@ -39,7 +39,7 @@ custom.paperWidth=58;custom.blocks[0].text='Dükan <script>alert(1)</script>';
 custom.blocks[1].text='Address\nPhone';custom.blocks[0].align='right';
 context.custom=custom;
 const customized=vm.runInContext('renderReceipt(sale,custom)',context);
-assert.ok(customized.includes('--receipt-width:54mm'));
+assert.ok(customized.includes('--receipt-width:48mm'));
 assert.ok(customized.includes('text-align:right'));
 assert.ok(customized.includes('&lt;script&gt;'));
 assert.ok(!customized.includes('<script>'));
@@ -75,7 +75,7 @@ vm.runInContext("designTemplate=defaults;receiptTemplate=defaults;barcodeTemplat
 assert.equal(vm.runInContext('receiptDraft.fontSize',context),14);
 vm.runInContext("activateDesigner('barcode-designer');",context);
 assert.equal(vm.runInContext('receiptDraft.fontSize',context),10);
-assert.equal(vm.runInContext('receiptTemplate.fontSize',context),12);
+assert.equal(vm.runInContext('receiptTemplate.fontSize',context),14);
 console.log('Barcode rendering and independent designer drafts passed.');
 
 const digitCalls=[];

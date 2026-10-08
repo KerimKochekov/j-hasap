@@ -2,6 +2,7 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
+from contextlib import contextmanager
 import sqlite3
 import json
 import base64
@@ -19,12 +20,17 @@ ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get('POS_DB', str(ROOT / 'data' / 'pos.sqlite3')))
 PRODUCT_PICTURES = {'water','sparkling','milk','bread','eggs','rice','pasta','coffee','chocolate','cookies','oil','default'}
 
+@contextmanager
 def connect():
     DB.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB, timeout=20)
-    db.row_factory = sqlite3.Row
-    db.execute('PRAGMA foreign_keys=ON')
-    return db
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA foreign_keys=ON')
+        with db:
+            yield db
+    finally:
+        db.close()
 
 def initialize():
     with connect() as db:
@@ -161,7 +167,10 @@ def save_product(db, body):
     db.execute('BEGIN IMMEDIATE')
     changed_at = datetime.now().astimezone().isoformat(timespec='seconds')
     if pid is None:
-        pid = db.execute('INSERT INTO products(name,barcode,price,stock,image) VALUES(?,?,?,?,?)', fields).lastrowid
+        # Keep retained sale snapshots separate from products added after a catalog reset.
+        pid = db.execute('''SELECT MAX(COALESCE((SELECT MAX(id) FROM products),0),
+                                      COALESCE((SELECT MAX(product_id) FROM sale_items),0))+1''').fetchone()[0]
+        db.execute('INSERT INTO products(id,name,barcode,price,stock,image) VALUES(?,?,?,?,?,?)', (pid,*fields))
         db.execute("INSERT INTO product_price_history(product_id,changed_at,old_price,new_price,source) VALUES(?,?,NULL,?,'initial')",
                    (pid,changed_at,fields[2]))
     else:
@@ -272,6 +281,16 @@ def sale_detail(db, sid):
     result['items'] = [dict(r) for r in db.execute('SELECT * FROM sale_items WHERE sale_id=?', (sid,))]
     return result
 
+def reset_data(scope):
+    tables = {
+        'products': ('product_price_history', 'product_stock_history', 'products'),
+        'sales': ('sale_items', 'sales'),
+    }[scope]
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        deleted = {table: db.execute(f'DELETE FROM {table}').rowcount for table in tables}
+    return {'ok': True, 'deleted': deleted}
+
 class Handler(BaseHTTPRequestHandler):
     def respond(self, payload, status=200):
         data = json.dumps(payload).encode()
@@ -339,6 +358,8 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('Invalid request.')
+            if self.path in ('/api/products/reset','/api/sales/reset'):
+                return self.respond(reset_data(self.path.split('/')[2]))
             if self.path == '/api/sales':
                 return self.respond(complete_sale(body), 201)
             if self.path in ('/api/bluetooth/connect','/api/bluetooth/test','/api/bluetooth/print'):

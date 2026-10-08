@@ -107,7 +107,8 @@ async function executePrintContent(html,paperWidth=80,method='browser'){
   $('#print-area').innerHTML=html;
   let pageStyle=$('#receipt-print-style');
   if(!pageStyle){pageStyle=document.createElement('style');pageStyle.id='receipt-print-style';document.head.append(pageStyle);}
-  pageStyle.textContent=`@media print { @page { size:auto; margin:2mm; } #print-area { width:${paperWidth-4}mm; } }`;
+  pageStyle.textContent=`@media print { @page { size:auto; margin:0; } #print-area { width:${receiptPrintWidth(paperWidth)}mm; max-width:100%; } #print-area .receipt-v2 { width:100%; } }`;
+  await document.fonts.ready;
   await Promise.allSettled([...$('#print-area').querySelectorAll('img')].map(img=>img.decode()));
   window.print();
 }

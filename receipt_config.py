@@ -5,16 +5,16 @@ import re
 from urllib.parse import urlparse
 
 DEFAULT_TEMPLATE = {
-    'version': 1, 'paperWidth': 80, 'font': 'monospace', 'fontSize': 12, 'feed': 2,
+    'version': 1, 'paperWidth': 80, 'font': 'sans', 'fontSize': 14, 'feed': 2,
     'blocks': [
         {'id':'store','type':'title','text':'COUNTER','align':'center','size':'large','bold':True},
         {'id':'heading','type':'text','text':None,'preset':'Sales receipt','align':'center','size':'small','bold':False},
-        {'id':'meta','type':'meta','align':'center','size':'small','bold':False},
+        {'id':'meta','type':'meta','align':'center','size':'normal','bold':False},
         {'id':'rule1','type':'divider','align':'center','size':'normal','bold':False},
         {'id':'items','type':'items','align':'left','size':'normal','bold':False},
         {'id':'rule2','type':'divider','align':'center','size':'normal','bold':False},
         {'id':'total','type':'total','align':'left','size':'normal','bold':True},
-        {'id':'payment','type':'payment','align':'left','size':'small','bold':False},
+        {'id':'payment','type':'payment','align':'left','size':'normal','bold':False},
         {'id':'rule3','type':'divider','align':'center','size':'normal','bold':False},
         {'id':'thanks','type':'text','text':None,'preset':'Thank you for shopping with us!','align':'center','size':'small','bold':False},
     ]

@@ -15,6 +15,9 @@ function activateDesigner(mode) {
 }
 const isBarcodeDesigner = () => designerMode==='barcode-designer';
 const designEndpoint = () => isBarcodeDesigner()?'barcode-template':'receipt-template';
+// Thermal rolls have narrower print heads: 72 mm on an 80 mm roll, 48 mm on a 58 mm roll.
+const receiptPrintWidth = paperWidth => Math.min(paperWidth-4,paperWidth===58?48:72);
+const receiptFont = template => template.font==='sans'?'Arial, Helvetica, sans-serif':'Consolas, "Liberation Mono", monospace';
 function requiredBlock(kind){return isBarcodeDesigner()?['product_name','product_barcode','product_price'].includes(kind):lockedBlocks.has(kind);}
 function barcodeSample(){return products.find(p=>p.id===barcodeSampleId)||products.find(p=>p.barcode.length<=18)||{name:t('Sample product'),barcode:'123456789',price:1250};}
 function renderBarcodeLabel(product,template,interactive=false){
@@ -31,7 +34,7 @@ function renderBarcodeLabel(product,template,interactive=false){
     }
     return `<div class="receipt-block ${interactive?'editable-block':''} ${interactive&&selectedBlock===block.id?'is-selected':''}" ${interactive?`data-block="${esc(block.id)}" tabindex="0" role="button" aria-label="${esc(t(blockNames[block.type]))}"`:''} style="text-align:${block.align};font-size:${{small:.85,normal:1,large:1.4}[block.size]}em;font-weight:${block.bold?'700':'400'}">${body}</div>`;
   }).join('');
-  return `<div class="receipt receipt-v2 barcode-designed" style="--receipt-width:${template.paperWidth-4}mm;--receipt-size:${template.fontSize}px;--receipt-font:${template.font==='sans'?'Arial, sans-serif':'monospace'}">${blocks}<div class="receipt-feed" style="height:${template.feed*4}mm"></div></div>`;
+  return `<div class="receipt receipt-v2 barcode-designed" style="--receipt-width:${receiptPrintWidth(template.paperWidth)}mm;--receipt-size:${template.fontSize}px;--receipt-font:${esc(receiptFont(template))}">${blocks}<div class="receipt-feed" style="height:${template.feed*4}mm"></div></div>`;
 }
 function renderDesignerPreview(interactive=false){return isBarcodeDesigner()?renderBarcodeLabel(barcodeSample(),receiptDraft,interactive):renderReceipt(designerSample(),receiptDraft,interactive);}
 
@@ -85,9 +88,9 @@ function renderReceipt(sale, template, interactive = false) {
       case 'qr':
         body=validQRLink(block.url)?`${receiptQR(block.url,{small:28,normal:36,large:44}[block.size])}<div class="receipt-qr-caption">${esc(block.caption??t('Follow us on Instagram'))}</div>`:(interactive?`<div class="receipt-logo-placeholder">${t('Paste your Instagram page link')}</div>`:'');break;
     }
-    return `<div class="receipt-block ${interactive?'editable-block':''} ${interactive&&selectedBlock===block.id?'is-selected':''}" ${interactive?`data-block="${esc(block.id)}" tabindex="0" role="button" aria-label="${esc(t(blockNames[block.type]))}"`:''} style="text-align:${block.align};font-size:${{small:.85,normal:1,large:1.4}[block.size]}em;font-weight:${block.bold?'700':'400'}">${body}</div>`;
+    return `<div class="receipt-block ${interactive?'editable-block':''} ${interactive&&selectedBlock===block.id?'is-selected':''}" ${interactive?`data-block="${esc(block.id)}" tabindex="0" role="button" aria-label="${esc(t(blockNames[block.type]))}"`:''} style="text-align:${block.align};font-size:max(12px,${{small:.85,normal:1,large:1.4}[block.size]}em);font-weight:${block.bold?'700':'400'}">${body}</div>`;
   }).join('');
-  return `<div class="receipt receipt-v2" style="--receipt-width:${template.paperWidth-4}mm;--receipt-size:${template.fontSize}px;--receipt-font:${template.font==='sans'?'Arial, sans-serif':'monospace'}">${blocks}<div class="receipt-feed" style="height:${template.feed*4}mm"></div></div>`;
+  return `<div class="receipt receipt-v2" style="--receipt-width:${receiptPrintWidth(template.paperWidth)}mm;--receipt-size:${template.fontSize}px;--receipt-font:${esc(receiptFont(template))}">${blocks}<div class="receipt-feed" style="height:${template.feed*4}mm"></div></div>`;
 }
 function designerSample() {
   const items = products.slice(0,2).map((product,index)=>({...product,quantity:index+1}));
